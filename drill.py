@@ -7,6 +7,11 @@ Implement the functions below. See the drill guide for full task descriptions.
 import os
 import re
 import string
+from collections import Counter
+
+# استيراد المكتبات المطلوبة للـ Pipelines والـ ROUGE
+from transformers import pipeline
+from rouge_score.rouge_scorer import RougeScorer
 
 
 # -- Helpers (provided — do NOT modify) --------------------------------------
@@ -29,8 +34,8 @@ def build_qa_pipeline(model_name: str):
 
     Returns the pipeline object (callable).
     """
-    # TODO: build a question-answering pipeline using the given model name (see reading § 3)
-    raise NotImplementedError("build_qa_pipeline not implemented")
+    # بناء وتمرير خط أنابيب الإجابة على الأسئلة باستخدام النموذج المحدد
+    return pipeline("question-answering", model=model_name)
 
 
 def answer_one(qa, question: str, context: str) -> dict:
@@ -39,8 +44,8 @@ def answer_one(qa, question: str, context: str) -> dict:
 
     Returns the pipeline output dict with keys "answer", "score", "start", "end".
     """
-    # TODO: call qa(question=..., context=...) and return the result
-    raise NotImplementedError("answer_one not implemented")
+    # استدعاء خط الأنابيب وتمرير المدخلات كـ Keyword Arguments كما يطلب الـ Docstring
+    return qa(question=question, context=context)
 
 
 # -- Task 2: Normalization + EM ----------------------------------------------
@@ -55,16 +60,27 @@ def normalize_answer(s: str) -> str:
       - strip all string.punctuation
       - collapse whitespace
     """
-    # TODO: apply the four normalization steps in order; word-boundary regex is required for the article strip
-    raise NotImplementedError("normalize_answer not implemented")
+    # 1. تحويل الحروف إلى صغيرة
+    s = s.lower()
+    
+    # 2. إزالة أدوات التعريف والتنكير المستقلة باستخدام حدود الكلمات \b لمنع المساس بكلمات مثل another
+    s = re.sub(r"\b(a|an|the)\b", " ", s)
+    
+    # 3. إزالة علامات الترقيم بالكامل
+    s = "".join(ch for ch in s if ch not in string.punctuation)
+    
+    # 4. دمج المسافات الزائدة وإزالة الفراغات من الأطراف
+    s = " ".join(s.split())
+    
+    return s
 
 
 def exact_match(pred: str, gold: str) -> int:
     """
     Return 1 if normalized prediction equals normalized gold, else 0.
     """
-    # TODO: normalize both, compare, return int
-    raise NotImplementedError("exact_match not implemented")
+    # مطابقة النصين بعد تنظيفهما وتمريرهما على دالة الـ normalization
+    return 1 if normalize_answer(pred) == normalize_answer(gold) else 0
 
 
 # -- Task 3: Token-F1 --------------------------------------------------------
@@ -78,10 +94,30 @@ def token_f1(pred: str, gold: str) -> float:
       - one empty -> 0.0
     Returns a float in [0.0, 1.0]. Never returns NaN.
     """
-    # TODO: normalize both, split on whitespace
-    # TODO: handle empty cases
-    # TODO: compute multiset overlap, precision, recall, harmonic mean
-    raise NotImplementedError("token_f1 not implemented")
+    # تنظيف النصوص وتحويلها إلى قوائم من الكلمات (Tokens)
+    pred_tokens = normalize_answer(pred).split()
+    gold_tokens = normalize_answer(gold).split()
+    
+    # معالجة الحالات الفارغة لمنع الـ NaN والـ Division by Zero
+    if len(pred_tokens) == 0 and len(gold_tokens) == 0:
+        return 1.0
+    if len(pred_tokens) == 0 or len(gold_tokens) == 0:
+        return 0.0
+        
+    # حساب الـ multiset overlap (التقاطع مع مراعاة التكرار) باستخدام Counter
+    common = Counter(pred_tokens) & Counter(gold_tokens)
+    num_same = sum(common.values())
+    
+    if num_same == 0:
+        return 0.0
+        
+    # حساب الدقة والاستدعاء
+    precision = num_same / len(pred_tokens)
+    recall = num_same / len(gold_tokens)
+    
+    # حساب المتوسط التوافقي لـ F1
+    f1 = (2 * precision * recall) / (precision + recall)
+    return f1
 
 
 # -- Task 4: Summarization pipeline ------------------------------------------
@@ -92,8 +128,8 @@ def build_summarizer(model_name: str):
 
     Returns the pipeline object (callable).
     """
-    # TODO: build a summarization pipeline using the given model name (see reading § 6)
-    raise NotImplementedError("build_summarizer not implemented")
+    # بناء وتمرير خط أنابيب التلخيص باستخدام النموذج المحدد
+    return pipeline("summarization", model=model_name)
 
 
 def summarize_one(summ, text: str, max_length: int, min_length: int) -> str:
@@ -103,9 +139,11 @@ def summarize_one(summ, text: str, max_length: int, min_length: int) -> str:
     Use do_sample=False, num_beams=4. Return the summary_text string from the
     first output element (the pipeline returns a list-of-dicts).
     """
-    # TODO: invoke the pipeline with deterministic generation parameters and return the summary string
-    #       (the pipeline returns a list-of-dicts — see reading § 6 for the output shape)
-    raise NotImplementedError("summarize_one not implemented")
+    # استدعاء خط الأنابيب مع المعاملات المحددة حرفياً لمنع التوليد العشوائي للتلخيص
+    result = summ(text, max_length=max_length, min_length=min_length, do_sample=False, num_beams=4)
+    
+    # استخراج النص التلخيصي الفعلي من أول عنصر داخل القائمة الراجعة
+    return result[0]["summary_text"]
 
 
 # -- Task 5: ROUGE -----------------------------------------------------------
@@ -119,9 +157,18 @@ def compute_rouge(pred: str, ref: str) -> dict:
 
     Returns {"rouge1": float, "rouge2": float, "rougeL": float}, all F1.
     """
-    # TODO: build a stemming-enabled ROUGE scorer over the three metric variants
-    # TODO: score the (reference, predicted) pair (mind the argument order) and return F1 measures only
-    raise NotImplementedError("compute_rouge not implemented")
+    # إنشاء الـ Scorer مع تفعيل الـ stemming لتجذير الكلمات وتضمين المتغيرات الثلاثة
+    scorer = RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
+    
+    # حساب السكور مع الالتزام بالترتيب المطلق: المرجع (ref) أولاً، ثم التوقع (pred)
+    scores = scorer.score(ref, pred)
+    
+    # استخراج مقياس الـ F1 فقط لكل من المقاييس المحددة وإعادتها كـ قاموس
+    return {
+        "rouge1": scores["rouge1"].fmeasure,
+        "rouge2": scores["rouge2"].fmeasure,
+        "rougeL": scores["rougeL"].fmeasure
+    }
 
 
 if __name__ == "__main__":
